@@ -785,7 +785,8 @@ elif menu == 'Scan Product':
     if st.session_state.open_camera:
 
         uploaded_file = st.camera_input(
-            'Scan QR / Barcode'
+            'Use rare camera to scan QR / Barcode',
+            key='rare_camera'
         )
 
         if uploaded_file is not None:
