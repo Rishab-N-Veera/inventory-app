@@ -1,0 +1,10 @@
+streamlit
+pandas
+qrcode
+pillow
+python-barcode
+opencv-python-headless
+pyzbar
+reportlab
+bcrypt
+numpy
