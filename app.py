@@ -19,40 +19,48 @@ import os
 # CREATE FOLDERS
 # ============================================================
 
-os.makedirs("qr_codes", exist_ok=True)
-os.makedirs("barcodes", exist_ok=True)
-os.makedirs("labels", exist_ok=True)
+os.makedirs('qr_codes', exist_ok=True)
+os.makedirs('barcodes', exist_ok=True)
+os.makedirs('labels', exist_ok=True)
 
 # ============================================================
-# DATABASE
+# DATABASE CONNECTION
 # ============================================================
 
 conn = sqlite3.connect(
-    "inventory.db",
+    'inventory.db',
     check_same_thread=False
 )
 
 cursor = conn.cursor()
 
 # ============================================================
-# TABLES
+# MASTER PRODUCTS
 # ============================================================
 
-cursor.execute("""
+cursor.execute('''
 CREATE TABLE IF NOT EXISTS master_products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_name TEXT UNIQUE
 )
-""")
+''')
 
-cursor.execute("""
+# ============================================================
+# STORES
+# ============================================================
+
+cursor.execute('''
 CREATE TABLE IF NOT EXISTS stores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     store_name TEXT UNIQUE
 )
-""")
+''')
 
-cursor.execute("""
+# ============================================================
+# USERS
+# ============================================================
+
+cursor.execute('''
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
@@ -60,9 +68,13 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT,
     store_id INTEGER
 )
-""")
+''')
 
-cursor.execute("""
+# ============================================================
+# PRODUCTS
+# ============================================================
+
+cursor.execute('''
 CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_code TEXT UNIQUE,
@@ -71,9 +83,13 @@ CREATE TABLE IF NOT EXISTS products (
     pack_price REAL,
     single_price REAL
 )
-""")
+''')
 
-cursor.execute("""
+# ============================================================
+# PRODUCT PACKS
+# ============================================================
+
+cursor.execute('''
 CREATE TABLE IF NOT EXISTS product_packs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pack_code TEXT UNIQUE,
@@ -86,9 +102,13 @@ CREATE TABLE IF NOT EXISTS product_packs (
     created_by TEXT,
     created_at TEXT
 )
-""")
+''')
 
-cursor.execute("""
+# ============================================================
+# SCAN HISTORY
+# ============================================================
+
+cursor.execute('''
 CREATE TABLE IF NOT EXISTS scan_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT,
@@ -99,7 +119,7 @@ CREATE TABLE IF NOT EXISTS scan_history (
     total_amount REAL,
     scan_time TEXT
 )
-""")
+''')
 
 conn.commit()
 
@@ -107,11 +127,13 @@ conn.commit()
 # PASSWORD FUNCTIONS
 # ============================================================
 
+
 def hash_password(password):
     return bcrypt.hashpw(
         password.encode(),
         bcrypt.gensalt()
     )
+
 
 def verify_password(password, hashed):
     return bcrypt.checkpw(
@@ -120,49 +142,15 @@ def verify_password(password, hashed):
     )
 
 # ============================================================
-# LOGIN
+# USER FUNCTIONS
 # ============================================================
 
-def login_user(username, password):
 
-    cursor.execute(
-        """
-        SELECT * FROM users
-        WHERE username = ?
-        """,
-        (username,)
-    )
+def create_user(username, password, role, store_id):
 
-    user = cursor.fetchone()
+    hashed = hash_password(password)
 
-    if user:
-
-        if verify_password(
-            password,
-            user[2]
-        ):
-            return user
-
-    return None
-
-# ============================================================
-# CREATE DEFAULT ADMIN
-# ============================================================
-
-cursor.execute("""
-SELECT * FROM users
-WHERE username='admin'
-""")
-
-admin_check = cursor.fetchone()
-
-if not admin_check:
-
-    admin_password = hash_password(
-        "admin123"
-    )
-
-    cursor.execute("""
+    cursor.execute('''
     INSERT INTO users (
         username,
         password,
@@ -170,10 +158,57 @@ if not admin_check:
         store_id
     )
     VALUES (?, ?, ?, ?)
-    """, (
-        "admin",
+    ''', (
+        username,
+        hashed,
+        role,
+        store_id
+    ))
+
+    conn.commit()
+
+
+def login_user(username, password):
+
+    cursor.execute(
+        'SELECT * FROM users WHERE username = ?',
+        (username,)
+    )
+
+    user = cursor.fetchone()
+
+    if user:
+
+        if verify_password(password, user[2]):
+            return user
+
+    return None
+
+# ============================================================
+# DEFAULT ADMIN
+# ============================================================
+
+cursor.execute(
+    "SELECT * FROM users WHERE username='admin'"
+)
+
+admin_check = cursor.fetchone()
+
+if not admin_check:
+
+    admin_password = hash_password('admin123')
+
+    cursor.execute('''
+    INSERT INTO users (
+        username,
+        password,
+        role,
+        store_id
+    ) VALUES (?, ?, ?, ?)
+    ''', (
+        'admin',
         admin_password,
-        "ADMIN",
+        'ADMIN',
         0
     ))
 
@@ -183,155 +218,131 @@ if not admin_check:
 # QR GENERATOR
 # ============================================================
 
+
 def generate_qr(pack_code):
 
     qr = qrcode.make(pack_code)
 
-    path = f"qr_codes/{pack_code}.png"
+    path = f'qr_codes/{pack_code}.png'
 
     qr.save(path)
+
+    return path
 
 # ============================================================
 # BARCODE GENERATOR
 # ============================================================
 
+
 def generate_barcode(pack_code):
 
     code128 = barcode.get(
-        "code128",
+        'code128',
         pack_code,
         writer=ImageWriter()
     )
 
-    code128.save(
-        f"barcodes/{pack_code}"
+    filename = code128.save(
+        f'barcodes/{pack_code}'
     )
 
+    return filename
+
 # ============================================================
-# PDF LABEL GENERATOR
+# COMBINED LABEL PDF
 # ============================================================
+
 
 def generate_combined_pdf(
     product_code,
     number_of_packs
 ):
 
-    pdf_path = (
-        f"labels/{product_code}_labels.pdf"
+    combined_pdf = (
+        f'labels/{product_code}_ALL_LABELS.pdf'
     )
 
-    doc = SimpleDocTemplate(pdf_path)
+    doc = SimpleDocTemplate(combined_pdf)
 
     elements = []
 
-    for i in range(
-        1,
-        number_of_packs + 1
-    ):
+    for i in range(1, number_of_packs + 1):
 
         pack_code = (
-            f"{product_code}-PACK-{i:05d}"
+            f'{product_code}-PACK-{i:05d}'
         )
 
         qr_path = (
-            f"qr_codes/{pack_code}.png"
+            f'qr_codes/{pack_code}.png'
         )
 
         barcode_path = (
-            f"barcodes/{pack_code}.png"
+            f'barcodes/{pack_code}.png'
         )
 
         qr_img = RLImage(
             qr_path,
+            width=40,
+            height=40
+        )
+
+        barcode_img = RLImage(
+            barcode_path,
             width=60,
-            height=60
+            height=20
         )
 
         elements.append(qr_img)
-        elements.append(Spacer(1, 10))
+        elements.append(Spacer(1, 5))
+        elements.append(barcode_img)
+        elements.append(Spacer(1, 15))
 
     doc.build(elements)
 
-    return pdf_path
+    return combined_pdf
 
 # ============================================================
-# SCANNER
-# ============================================================
-
-uploaded_file = st.camera_input(
-    "Scan QR / Barcode"
-)
-
-if uploaded_file is not None:
-
-    image_bytes = uploaded_file.getvalue()
-
-    with open(
-        "temp_scan.png",
-        "wb"
-    ) as f:
-        f.write(image_bytes)
-
-    image = cv2.imread(
-        "temp_scan.png"
-    )
-
-    detected = decode(image)
-
-    for code in detected:
-
-        scanned_code = (
-            code.data.decode('utf-8')
-        )
-
-        st.session_state.scanned_code = (
-            scanned_code
-        )
-        
-# ============================================================
-# STREAMLIT CONFIG
+# STREAMLIT SETTINGS
 # ============================================================
 
 st.set_page_config(
-    page_title="Inventory ERP",
-    layout="wide"
+    page_title='Inventory ERP',
+    layout='wide'
 )
 
-st.title("Inventory ERP System")
+st.title('Inventory ERP System')
 
 # ============================================================
-# SESSION STATE
+# SESSION STATES
 # ============================================================
 
-if "logged_in" not in st.session_state:
+if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
-if "scanned_code" not in st.session_state:
+if 'scanned_code' not in st.session_state:
     st.session_state.scanned_code = None
 
+if 'open_camera' not in st.session_state:
+    st.session_state.open_camera = False
+
 # ============================================================
-# LOGIN PAGE
+# LOGIN SCREEN
 # ============================================================
 
 if not st.session_state.logged_in:
 
-    st.header("Login")
+    st.header('Login')
 
-    username = st.text_input(
-        "Username"
-    )
+    username = st.text_input('Username')
 
     password = st.text_input(
-        "Password",
-        type="password"
+        'Password',
+        type='password'
     )
 
-    if st.button("Login"):
+    if st.button('Login'):
 
-        user = login_user(
-            username,
-            password
-        )
+        user = login_user(username, password)
 
         if user:
 
@@ -340,16 +351,12 @@ if not st.session_state.logged_in:
             st.session_state.role = user[3]
             st.session_state.store_id = user[4]
 
-            st.success(
-                "Login Successful"
-            )
+            st.success('Login Successful')
 
             st.rerun()
 
         else:
-            st.error(
-                "Invalid Credentials"
-            )
+            st.error('Invalid Credentials')
 
     st.stop()
 
@@ -358,20 +365,20 @@ if not st.session_state.logged_in:
 # ============================================================
 
 st.sidebar.success(
-    f"Logged in as {st.session_state.username}"
+    f'Logged in as {st.session_state.username}'
 )
 
 menu = st.sidebar.selectbox(
-    "Menu",
+    'Menu',
     [
-        "Dashboard",
-        "Create Store",
-        "Create User",
-        "Master Products",
-        "Add Product",
-        "Scan Product",
-        "Inventory",
-        "Scan History"
+        'Dashboard',
+        'Create Store',
+        'Create User',
+        'Master Products',
+        'Add Product',
+        'Scan Product',
+        'Inventory',
+        'Scan History'
     ]
 )
 
@@ -379,83 +386,53 @@ menu = st.sidebar.selectbox(
 # DASHBOARD
 # ============================================================
 
-if menu == "Dashboard":
+if menu == 'Dashboard':
 
-    st.header("Dashboard")
+    st.header('Dashboard')
 
-    if st.session_state.role == "ADMIN":
+    if st.session_state.role == 'ADMIN':
 
         products = pd.read_sql_query(
-            """
-            SELECT COUNT(*) as total
-            FROM products
-            """,
+            'SELECT COUNT(*) as total FROM products',
             conn
         )
 
         stores = pd.read_sql_query(
-            """
-            SELECT COUNT(*) as total
-            FROM stores
-            """,
+            'SELECT COUNT(*) as total FROM stores',
             conn
         )
 
         users = pd.read_sql_query(
-            """
-            SELECT COUNT(*) as total
-            FROM users
-            """,
+            'SELECT COUNT(*) as total FROM users',
             conn
         )
 
         inventory = pd.read_sql_query(
-            """
-            SELECT SUM(remaining_units)
-            as total
-            FROM product_packs
-            """,
+            'SELECT SUM(remaining_units) as total FROM product_packs',
             conn
         )
 
         sales = pd.read_sql_query(
-            """
-            SELECT SUM(total_amount)
-            as total
-            FROM scan_history
-            """,
+            'SELECT SUM(total_amount) as total FROM scan_history',
             conn
         )
 
-        col1, col2, col3, col4, col5 = (
-            st.columns(5)
-        )
+        col1, col2, col3, col4, col5 = st.columns(5)
 
-        col1.metric(
-            "Products",
-            products["total"][0]
-        )
-
-        col2.metric(
-            "Stores",
-            stores["total"][0]
-        )
-
-        col3.metric(
-            "Users",
-            users["total"][0]
-        )
+        col1.metric('Products', products['total'][0])
+        col2.metric('Stores', stores['total'][0])
+        col3.metric('Users', users['total'][0])
 
         col4.metric(
-            "Remaining Units",
-            inventory["total"][0]
+            'Remaining Units',
+            inventory['total'][0]
         )
 
         col5.metric(
-            "Sales ₹",
+            'Total Sales ₹',
             round(
-                sales["total"][0]
-                if sales["total"][0]
+                sales['total'][0]
+                if sales['total'][0]
                 else 0,
                 2
             )
@@ -464,20 +441,19 @@ if menu == "Dashboard":
         st.divider()
 
         st.subheader(
-            "Store Wise Inventory"
+            'Store Wise Inventory & Sales'
         )
 
-        store_query = """
+        store_query = '''
 
         SELECT
 
             s.store_name,
 
-            COUNT(pp.id)
-            as total_packs,
+            COUNT(pp.id) as total_packs,
 
             SUM(pp.remaining_units)
-            as remaining_units,
+                as remaining_units,
 
             ROUND(
                 SUM(
@@ -490,9 +466,7 @@ if menu == "Dashboard":
             ROUND(
                 IFNULL(
                     (
-                        SELECT SUM(
-                            sh.total_amount
-                        )
+                        SELECT SUM(sh.total_amount)
                         FROM scan_history sh
                         WHERE sh.store_id = s.id
                     ),
@@ -512,7 +486,7 @@ if menu == "Dashboard":
 
         GROUP BY s.store_name
 
-        """
+        '''
 
         store_df = pd.read_sql_query(
             store_query,
@@ -526,94 +500,73 @@ if menu == "Dashboard":
 
     else:
 
-        inventory = pd.read_sql_query(f"""
+        inventory = pd.read_sql_query(f'''
         SELECT SUM(remaining_units)
         as total
         FROM product_packs
         WHERE store_id =
         {st.session_state.store_id}
-        """, conn)
+        ''', conn)
 
-        history = pd.read_sql_query(f"""
+        history = pd.read_sql_query(f'''
         SELECT COUNT(*) as total
         FROM scan_history
         WHERE username =
         '{st.session_state.username}'
-        """, conn)
+        ''', conn)
 
-        sales = pd.read_sql_query(f"""
-        SELECT SUM(total_amount)
-        as total
-        FROM scan_history
-        WHERE username =
-        '{st.session_state.username}'
-        """, conn)
-
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
 
         col1.metric(
-            "Store Inventory",
-            inventory["total"][0]
+            'Store Inventory',
+            inventory['total'][0]
         )
 
         col2.metric(
-            "My Scans",
-            history["total"][0]
-        )
-
-        col3.metric(
-            "My Sales ₹",
-            round(
-                sales["total"][0]
-                if sales["total"][0]
-                else 0,
-                2
-            )
+            'My Total Scans',
+            history['total'][0]
         )
 
 # ============================================================
 # CREATE STORE
 # ============================================================
 
-elif menu == "Create Store":
+elif menu == 'Create Store':
 
-    if st.session_state.role != "ADMIN":
+    if st.session_state.role != 'ADMIN':
         st.stop()
 
-    st.header("Create Store")
+    st.header('Create Store')
 
-    store_name = st.text_input(
-        "Store Name"
-    )
+    store_name = st.text_input('Store Name')
 
-    if st.button("Create Store"):
+    if st.button('Create Store'):
 
-        cursor.execute("""
-        INSERT INTO stores (
-            store_name
+        cursor.execute(
+            '''
+            INSERT INTO stores (
+                store_name
+            ) VALUES (?)
+            ''',
+            (store_name,)
         )
-        VALUES (?)
-        """, (store_name,))
 
         conn.commit()
 
-        st.success("Store Created")
+        st.success('Store Created Successfully')
 
 # ============================================================
 # CREATE USER
 # ============================================================
 
-elif menu == "Create User":
+elif menu == 'Create User':
 
-    if st.session_state.role != "ADMIN":
+    if st.session_state.role != 'ADMIN':
         st.stop()
 
-    st.header("Create User")
+    st.header('Create User')
 
-    cursor.execute(
-        "SELECT * FROM stores"
-    )
-
+    cursor.execute('SELECT * FROM stores')
     stores = cursor.fetchall()
 
     store_map = {
@@ -621,85 +574,65 @@ elif menu == "Create User":
         for store in stores
     }
 
-    username = st.text_input(
-        "Username"
-    )
+    username = st.text_input('Username')
 
     password = st.text_input(
-        "Password",
-        type="password"
+        'Password',
+        type='password'
     )
 
     role = st.selectbox(
-        "Role",
-        ["ADMIN", "USER"]
+        'Role',
+        ['ADMIN', 'USER']
     )
 
     store_name = st.selectbox(
-        "Store",
+        'Store',
         list(store_map.keys())
     )
 
-    if st.button("Create User"):
+    if st.button('Create User'):
 
-        hashed = hash_password(password)
-
-        cursor.execute("""
-        INSERT INTO users (
+        create_user(
             username,
             password,
             role,
-            store_id
-        )
-        VALUES (?, ?, ?, ?)
-        """, (
-            username,
-            hashed,
-            role,
             store_map[store_name]
-        ))
+        )
 
-        conn.commit()
-
-        st.success("User Created")
+        st.success('User Created Successfully')
 
 # ============================================================
 # MASTER PRODUCTS
 # ============================================================
 
-elif menu == "Master Products":
+elif menu == 'Master Products':
 
-    if st.session_state.role != "ADMIN":
+    if st.session_state.role != 'ADMIN':
         st.stop()
 
-    st.header("Master Products")
+    st.header('Master Product Database')
 
-    product_name = st.text_input(
-        "Product Name"
+    master_product_name = st.text_input(
+        'Master Product Name'
     )
 
-    if st.button(
-        "Add Master Product"
-    ):
+    if st.button('Add Master Product'):
 
-        cursor.execute("""
+        cursor.execute('''
         INSERT INTO master_products (
             product_name
-        )
-        VALUES (?)
-        """, (product_name,))
+        ) VALUES (?)
+        ''', (master_product_name,))
 
         conn.commit()
 
         st.success(
-            "Master Product Added"
+            'Master Product Added'
         )
 
     master_df = pd.read_sql_query(
-        """
-        SELECT *
-        FROM master_products
-        """,
+        'SELECT * FROM master_products',
         conn
     )
 
@@ -709,17 +642,24 @@ elif menu == "Master Products":
 # ADD PRODUCT
 # ============================================================
 
-elif menu == "Add Product":
+elif menu == 'Add Product':
 
-    if st.session_state.role != "ADMIN":
+    if st.session_state.role != 'ADMIN':
         st.stop()
 
-    st.header("Add Product")
+    st.header('Add Product')
 
-    cursor.execute("""
-    SELECT product_name
-    FROM master_products
-    """)
+    cursor.execute('SELECT * FROM stores')
+    stores = cursor.fetchall()
+
+    store_map = {
+        store[1]: store[0]
+        for store in stores
+    }
+
+    cursor.execute(
+        'SELECT product_name FROM master_products'
+    )
 
     master_products = cursor.fetchall()
 
@@ -728,63 +668,48 @@ elif menu == "Add Product":
         for product in master_products
     ]
 
-    cursor.execute(
-        "SELECT * FROM stores"
-    )
-
-    stores = cursor.fetchall()
-
-    store_map = {
-        store[1]: store[0]
-        for store in stores
-    }
-
-    product_code = st.text_input(
-        "Product Code"
-    )
+    product_code = st.text_input('Product Code')
 
     product_name = st.selectbox(
-        "Select Product",
+        'Select Product',
         product_options
     )
 
     quantity_per_pack = st.number_input(
-        "Quantity Per Pack",
+        'Quantity Per Pack',
         min_value=1
     )
 
     pack_price = st.number_input(
-        "Pack Price",
+        'Pack Price',
         min_value=1.0
     )
 
     number_of_packs = st.number_input(
-        "Number Of Packs",
+        'Number Of Packs',
         min_value=1
     )
 
     store_name = st.selectbox(
-        "Store",
+        'Store',
         list(store_map.keys())
     )
 
-    if st.button("Add Product"):
+    if st.button('Add Product'):
 
         single_price = (
-            pack_price /
-            quantity_per_pack
+            pack_price / quantity_per_pack
         )
 
-        cursor.execute("""
+        cursor.execute('''
         INSERT INTO products (
             product_code,
             product_name,
             quantity_per_pack,
             pack_price,
             single_price
-        )
-        VALUES (?, ?, ?, ?, ?)
-        """, (
+        ) VALUES (?, ?, ?, ?, ?)
+        ''', (
             product_code,
             product_name,
             quantity_per_pack,
@@ -792,16 +717,13 @@ elif menu == "Add Product":
             single_price
         ))
 
-        for i in range(
-            1,
-            number_of_packs + 1
-        ):
+        for i in range(1, number_of_packs + 1):
 
             pack_code = (
-                f"{product_code}-PACK-{i:05d}"
+                f'{product_code}-PACK-{i:05d}'
             )
 
-            cursor.execute("""
+            cursor.execute('''
             INSERT INTO product_packs (
                 pack_code,
                 product_code,
@@ -812,19 +734,18 @@ elif menu == "Add Product":
                 status,
                 created_by,
                 created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
                 pack_code,
                 product_code,
                 product_name,
                 quantity_per_pack,
                 quantity_per_pack,
                 store_map[store_name],
-                "ACTIVE",
+                'ACTIVE',
                 st.session_state.username,
                 datetime.now().strftime(
-                    "%Y-%m-%d %H:%M:%S"
+                    '%Y-%m-%d %H:%M:%S'
                 )
             ))
 
@@ -833,59 +754,89 @@ elif menu == "Add Product":
 
         conn.commit()
 
-        pdf_path = generate_combined_pdf(
+        combined_pdf = generate_combined_pdf(
             product_code,
             number_of_packs
         )
 
-        st.success(
-            "Product Added Successfully"
-        )
+        st.success('Product Added Successfully')
 
-        with open(
-            pdf_path,
-            "rb"
-        ) as file:
+        with open(combined_pdf, 'rb') as file:
 
             st.download_button(
-                label="Download Labels",
+                label='Download All QR/Barcode Labels',
                 data=file,
-                file_name=
-                f"{product_code}_labels.pdf",
-                mime="application/pdf"
+                file_name=f'{product_code}_labels.pdf',
+                mime='application/pdf'
             )
 
 # ============================================================
 # SCAN PRODUCT
 # ============================================================
 
-elif menu == "Scan Product":
+elif menu == 'Scan Product':
 
-    st.header("Scan Product")
+    st.header('Scan Product')
 
-    if st.button("Open Scanner"):
+    if st.button('Open Scanner Camera'):
 
-        scanned = scan_code()
+        st.session_state.open_camera = True
 
-        if scanned:
-            st.session_state.scanned_code = (
-                scanned
+    if st.session_state.open_camera:
+
+        uploaded_file = st.camera_input(
+            'Scan QR / Barcode'
+        )
+
+        if uploaded_file is not None:
+
+            image_bytes = uploaded_file.getvalue()
+
+            with open(
+                'temp_scan.png',
+                'wb'
+            ) as f:
+
+                f.write(image_bytes)
+
+            image = cv2.imread(
+                'temp_scan.png'
             )
+
+            detected = decode(image)
+
+            if detected:
+
+                for code in detected:
+
+                    scanned_code = (
+                        code.data.decode('utf-8')
+                    )
+
+                    st.session_state.scanned_code = (
+                        scanned_code
+                    )
+
+                st.session_state.open_camera = False
+
+                st.rerun()
+
+            else:
+
+                st.error(
+                    'No QR / Barcode Detected'
+                )
 
     if st.session_state.scanned_code:
 
-        code = (
-            st.session_state.scanned_code
-        )
+        code = st.session_state.scanned_code
 
-        st.success(
-            f"Scanned: {code}"
-        )
+        st.success(f'Scanned Pack: {code}')
 
-        cursor.execute("""
+        cursor.execute('''
         SELECT * FROM product_packs
         WHERE pack_code = ?
-        """, (code,))
+        ''', (code,))
 
         pack = cursor.fetchone()
 
@@ -894,73 +845,65 @@ elif menu == "Scan Product":
             remaining_units = pack[5]
 
             st.write(
-                f"Product: {pack[3]}"
+                f'Product Name: {pack[3]}'
             )
 
             st.write(
-                f"Remaining Units: "
-                f"{remaining_units}"
+                f'Remaining Units: {remaining_units}'
             )
 
             quantity = st.number_input(
-                "Quantity Sold",
+                'Quantity Sold',
                 min_value=1,
                 value=1
             )
 
-            if st.button("Sell Product"):
+            if st.button('Sell Product'):
 
                 if quantity > remaining_units:
 
                     st.error(
-                        f"Only "
-                        f"{remaining_units} "
-                        f"remaining in this pack"
+                        f'Only {remaining_units} '
+                        'units left in this pack'
                     )
 
                 else:
 
                     new_quantity = (
-                        remaining_units
-                        - quantity
+                        remaining_units - quantity
                     )
 
-                    status = "ACTIVE"
+                    status = 'ACTIVE'
 
                     if new_quantity == 0:
-                        status = "EMPTY"
+                        status = 'EMPTY'
 
-                    cursor.execute("""
+                    cursor.execute('''
                     UPDATE product_packs
                     SET remaining_units = ?,
                         status = ?
                     WHERE pack_code = ?
-                    """, (
+                    ''', (
                         new_quantity,
                         status,
                         code
                     ))
 
-                    cursor.execute("""
+                    cursor.execute('''
                     SELECT single_price
                     FROM products
                     WHERE product_code = ?
-                    """, (pack[2],))
+                    ''', (pack[2],))
 
-                    price_data = (
-                        cursor.fetchone()
-                    )
+                    price_data = cursor.fetchone()
 
-                    single_price = (
-                        price_data[0]
-                    )
+                    single_price = price_data[0]
 
                     total_amount = (
-                        quantity
-                        * single_price
+                        quantity * single_price
                     )
 
-                    cursor.execute("""
+                    cursor.execute('''
                     INSERT INTO scan_history (
                         username,
                         store_id,
@@ -971,7 +914,7 @@ elif menu == "Scan Product":
                         scan_time
                     )
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (
+                    ''', (
                         st.session_state.username,
                         st.session_state.store_id,
                         code,
@@ -979,14 +922,14 @@ elif menu == "Scan Product":
                         quantity,
                         total_amount,
                         datetime.now().strftime(
-                            "%Y-%m-%d %H:%M:%S"
+                            '%Y-%m-%d %H:%M:%S'
                         )
                     ))
 
                     conn.commit()
 
                     st.success(
-                        "Sale Completed"
+                        'Sale Completed Successfully'
                     )
 
                     st.session_state.scanned_code = None
@@ -997,24 +940,23 @@ elif menu == "Scan Product":
 # INVENTORY
 # ============================================================
 
-elif menu == "Inventory":
+elif menu == 'Inventory':
 
-    st.header("Inventory")
+    st.header('Inventory')
 
-    if st.session_state.role == "ADMIN":
+    if st.session_state.role == 'ADMIN':
 
-        query = """
+        query = '''
         SELECT * FROM product_packs
-        """
+        '''
 
     else:
 
-        query = f"""
-        SELECT *
-        FROM product_packs
+        query = f'''
+        SELECT * FROM product_packs
         WHERE store_id =
         {st.session_state.store_id}
-        """
+        '''
 
     inventory_df = pd.read_sql_query(
         query,
@@ -1027,35 +969,31 @@ elif menu == "Inventory":
     )
 
     st.metric(
-        "Total Remaining Units",
-        inventory_df[
-            "remaining_units"
-        ].sum()
+        'Total Remaining Inventory',
+        inventory_df['remaining_units'].sum()
     )
 
 # ============================================================
 # SCAN HISTORY
 # ============================================================
 
-elif menu == "Scan History":
+elif menu == 'Scan History':
 
-    st.header("Scan History")
+    st.header('Scan History')
 
-    if st.session_state.role == "ADMIN":
+    if st.session_state.role == 'ADMIN':
 
-        query = """
-        SELECT *
-        FROM scan_history
-        """
+        query = '''
+        SELECT * FROM scan_history
+        '''
 
     else:
 
-        query = f"""
-        SELECT *
-        FROM scan_history
+        query = f'''
+        SELECT * FROM scan_history
         WHERE username =
         '{st.session_state.username}'
-        """
+        '''
 
     history_df = pd.read_sql_query(
         query,
