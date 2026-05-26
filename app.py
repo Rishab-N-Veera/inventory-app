@@ -258,44 +258,33 @@ def generate_combined_pdf(
 # SCANNER
 # ============================================================
 
-def scan_code():
+uploaded_file = st.camera_input(
+    "Scan QR / Barcode"
+)
 
-    cap = cv2.VideoCapture(0)
+if uploaded_file is not None:
 
-    detected_code = None
+    image_bytes = uploaded_file.getvalue()
 
-    while True:
+    with open(
+        "temp_scan.png",
+        "wb"
+    ) as f:
+        f.write(image_bytes)
 
-        success, frame = cap.read()
+    image = cv2.imread("temp_scan.png")
 
-        if not success:
-            break
+    detected = decode(image)
 
-        detected = decode(frame)
+    for code in detected:
 
-        for code in detected:
-
-            detected_code = (
-                code.data.decode("utf-8")
-            )
-
-            cap.release()
-            cv2.destroyAllWindows()
-
-            return detected_code
-
-        cv2.imshow(
-            "Scanner",
-            frame
+        scanned_code = (
+            code.data.decode('utf-8')
         )
 
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-    return detected_code
+        st.session_state.scanned_code = (
+            scanned_code
+        )
 
 # ============================================================
 # STREAMLIT CONFIG
