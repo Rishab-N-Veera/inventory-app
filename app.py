@@ -272,7 +272,9 @@ if uploaded_file is not None:
     ) as f:
         f.write(image_bytes)
 
-    image = cv2.imread("temp_scan.png")
+    image = cv2.imread(
+        "temp_scan.png"
+    )
 
     detected = decode(image)
 
@@ -285,7 +287,7 @@ if uploaded_file is not None:
         st.session_state.scanned_code = (
             scanned_code
         )
-
+        
 # ============================================================
 # STREAMLIT CONFIG
 # ============================================================
